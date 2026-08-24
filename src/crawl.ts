@@ -1,7 +1,7 @@
 import * as url from 'node:url';
 import { JSDOM } from 'jsdom';
 import { ExtractedPageData } from './types.js';
-
+import { isSameDomain } from './helpers.js';
 
 export function normalizeURL(inURL: string): string {
     // saftey check
@@ -15,15 +15,9 @@ export function normalizeURL(inURL: string): string {
     return urlstr;
 }
 export function reproduceLink(baseURL: string, path: string): string {
-    // path is a full working url
-    if (URL.canParse(path))
-        return path;
-    // one / between two
-    if (baseURL.endsWith('/'))
-        baseURL = baseURL.slice(0, baseURL.length-1);
-    if (path.startsWith('/'))
-        path = path.slice(1);
-    return baseURL + '/' + path;
+    // resolves absolute URLs, root-relative paths ("/x"), and relative
+    // paths ("x", "../x") against baseURL the way a browser would
+    return new url.URL(path, baseURL).href;
 }
 
 export function getHeadingFromHTML(html: string): string {
@@ -71,4 +65,55 @@ export function extractPageData(html: string, baseURL: string): ExtractedPageDat
         outgoingLinks: getURLsFromHTML(html, baseURL),
         imageURLs: getImagesFromHTML(html, baseURL)
     });
+}
+
+
+export async function getHTML(baseURL: string): Promise<string> {
+    // make a GET request to the base url of the claimed html page
+    // we set header User-Agent: JohnCrawl
+    const res = await fetch(baseURL, {
+        headers: {
+            'User-Agent': 'JohnCrawl/1.0'
+        }
+    });
+    
+    // if URL gives back errors
+    if (res.status >= 400)
+        throw new Error(`error on the site: ${baseURL}`);
+
+    // if not HTML reject
+    console.log(res.headers.get('Content-Type'))
+    if (!res.headers.get('Content-Type')?.includes('text/html'))
+        throw new Error(`The URL: ${baseURL}, does not provide HTML page`);
+
+
+    const data = res.text();
+
+    return data;
+}
+
+// Crawl function, runs recursivley and gets the data of all html-pages links provided in the curPage
+// curPage will become the new found page in each move towards
+export async function crawlPage(baseURL: string, curPage: string = baseURL, pages: Record<string, number> = {}) {
+    if (!isSameDomain(baseURL, curPage))
+        return pages;
+
+    const normalized = normalizeURL(curPage);
+    // if from same base we are calling twice
+    if (pages[normalized] >= 1) {
+        pages[normalized]++;
+        return pages;
+    }
+    pages[normalized] = 1;
+
+    // page html
+    console.log(`getting html for ${normalized}`);
+    const html = await getHTML(curPage);
+
+    // extract URLs
+    const URLs = getURLsFromHTML(html, curPage);
+
+    for (const url of URLs)
+        await crawlPage(baseURL, url, pages);
+    return pages;
 }
