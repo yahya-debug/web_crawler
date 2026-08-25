@@ -1,5 +1,6 @@
 import { argv } from "node:process";
 import { crawlSiteAsync, normalizeURL } from "./crawl.js";
+import { writeJSONReport } from "./report.js";
 
 async function main() {
     if (argv.length != 5)
@@ -15,6 +16,7 @@ async function main() {
 
     console.log(`started crawling ${argv[2]}`)
     const pages = await crawlSiteAsync(baseURL, parseInt(maxConcurrency), parseInt(maxPages));
+    writeJSONReport(pages, 'report.json');
     console.log("Finished crawling.");
     const firstPage = Object.values(pages)[0];
     if (firstPage) {
