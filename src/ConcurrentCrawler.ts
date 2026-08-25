@@ -1,35 +1,39 @@
 import pLimit, { LimitFunction } from 'p-limit';
 import { isSameDomain } from './helpers.js';
-import { getURLsFromHTML, normalizeURL } from './crawl.js';
+import { extractPageData, getURLsFromHTML, normalizeURL } from './crawl.js';
+import { ExtractedPageData } from './types.js';
 export class ConcurrentCrawler {
     private baseURL: string;
-    private pages: Record<string, number>;
+    private pages: Record<string, ExtractedPageData>;
     private limit: LimitFunction;
     private maxPages: number;
     private shouldStop: boolean;
     private allTasks: Set<Promise<void>>;
-    constructor(baseURL: string, pages: Record<string, number> = {}, limit: number, maxPages: number) {
+    private visited: Set<string>;
+    constructor(baseURL: string, pages: Record<string, ExtractedPageData> = {}, limit: number, maxPages: number) {
         this.baseURL = baseURL;
         this.pages = pages;
         this.limit = pLimit(limit);
         this.maxPages = maxPages;
         this.shouldStop = false;
         this.allTasks = new Set();
+        this.visited = new Set();
     }
 
     private addPageVisit(normalizedURL: string): boolean {
         if (this.shouldStop) return false;
-        if (this.pages[normalizedURL] >= 1) {
-            this.pages[normalizedURL]++;
+        if (this.visited.has(normalizedURL)) {
             return false;
         }
 
-        if (Object.keys(this.pages).length == this.maxPages) {
+        if (this.visited.size >= this.maxPages) {
             this.shouldStop = true;
             console.log("Reached maximum number of pages to crawl.");
             return false;
         }
-        this.pages[normalizedURL] = 1;
+        // reserve the slot synchronously, before any async work,
+        // so concurrent crawls of the same URL can't race past this check
+        this.visited.add(normalizedURL);
         return true;
     }
 
@@ -50,7 +54,6 @@ export class ConcurrentCrawler {
                 throw new Error(`error on the site: ${baseURL}`);
         
             // if not HTML reject
-            console.log(res.headers.get('Content-Type'))
             if (!res.headers.get('Content-Type')?.includes('text/html'))
                 throw new Error(`The URL: ${baseURL}, does not provide HTML page`);
         
@@ -71,22 +74,27 @@ export class ConcurrentCrawler {
         if (!this.addPageVisit(normalized))
             return;
 
-        console.log(`crawling ${curPage}`);
-        // page html
-        const html = await this.getHTML(curPage);
-
-        // extract URLs
-        const URLs = getURLsFromHTML(html, curPage);
-
-        const pages = [];
-        for (const url of URLs) {
-            const crawlTask = this.crawlPage(baseURL, url);
-            pages.push(crawlTask);
-            this.allTasks.add(crawlTask); 
-            crawlTask.finally(() => this.allTasks.delete(crawlTask));
+        try {
+            console.log(`crawling ${curPage}`);
+            // page html
+            const html = await this.getHTML(curPage);
+            // extract URLs
+            const data = extractPageData(html, curPage);
+            console.log(Object.keys(this.pages).length)
+            this.pages[normalized] = data;
+    
+            const pages = [];
+            for (const url of data.outgoingLinks) {
+                const crawlTask = this.crawlPage(baseURL, url);
+                pages.push(crawlTask);
+                this.allTasks.add(crawlTask); 
+                crawlTask.finally(() => this.allTasks.delete(crawlTask));
+            }
+    
+            await Promise.all(pages);
+        } catch (e) {
+            return;
         }
-
-        await Promise.all(pages);
     }
 
     public async crawl() {

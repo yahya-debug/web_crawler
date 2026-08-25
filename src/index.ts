@@ -14,7 +14,12 @@ async function main() {
     normalizeURL('https://learnwebscraping.dev/practice/ecommerce/')
 
     console.log(`started crawling ${argv[2]}`)
-    console.log(await crawlSiteAsync(baseURL, parseInt(maxConcurrency), parseInt(maxPages)));
+    const pages = await crawlSiteAsync(baseURL, parseInt(maxConcurrency), parseInt(maxPages));
+    console.log("Finished crawling.");
+    const firstPage = Object.values(pages)[0];
+    if (firstPage) {
+        console.log(`First page record: ${firstPage["url"]} - ${firstPage["heading"]}`);
+    }
     process.exit(0);
 }
 

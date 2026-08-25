@@ -70,7 +70,7 @@ export function extractPageData(html: string, baseURL: string): ExtractedPageDat
 
 
 
-export async function crawlSiteAsync(baseURL: string, maxConcurrency: number, maxPages: number): Promise<Record<string, number>> {
+export async function crawlSiteAsync(baseURL: string, maxConcurrency: number, maxPages: number): Promise<Record<string, ExtractedPageData>> {
     const concurrentCrawler = new ConcurrentCrawler(baseURL, {}, maxConcurrency, maxPages);
 
     return await concurrentCrawler.crawl();
